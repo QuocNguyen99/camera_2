@@ -5,8 +5,10 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
+import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
@@ -67,7 +69,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        imageReader = ImageReader.newInstance(1080, 1920, ImageFormat.JPEG, 1)
+        imageReader = ImageReader.newInstance(1280, 720, ImageFormat.JPEG, 1)
         imageReader.setOnImageAvailableListener({
             val image = it.acquireLatestImage()
             val buffer = image.planes[0].buffer
@@ -88,7 +90,6 @@ class MainActivity : AppCompatActivity() {
                 "Image Capture",
                 Toast.LENGTH_LONG
             ).show()
-            handlerThread.quitSafely()
         }, handler)
 
         findViewById<MaterialButton>(R.id.btn).apply {
@@ -129,21 +130,27 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private fun startCamera() {
         cameraManager.openCamera(
-            cameraManager.cameraIdList[0],
+            cameraManager.cameraIdList.first(),
             object : CameraDevice.StateCallback() {
                 override fun onOpened(p0: CameraDevice) {
                     cameraDevice = p0
 
                     capRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-                    val surface = Surface(textureView.surfaceTexture)
+                    val surfaceTexture = textureView.surfaceTexture
+                    surfaceTexture?.setDefaultBufferSize(1280, 720)
+                    Log.d("TAG", "startCamera: ${textureView.width} -- ${textureView.height}")
+
+
+                    val surface = Surface(surfaceTexture)
                     capRequest.addTarget(surface)
-                    capRequest.addTarget(imageReader.surface)
+                            capRequest.addTarget(imageReader.surface)
 
                     cameraDevice.createCaptureSession(
-                        mutableListOf(surface, imageReader.surface),
+                        mutableListOf(imageReader.surface, surface),
                         object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(p0: CameraCaptureSession) {
                                 cameCaptureSession = p0
+
                                 cameCaptureSession.setRepeatingRequest(
                                     capRequest.build(), null, null
                                 )
@@ -166,6 +173,23 @@ class MainActivity : AppCompatActivity() {
             },
             handler
         )
+    }
+
+    private fun calculateCropRegion(sensorSize: Rect, desiredAspectRatio: Float): Rect {
+        val sensorAspectRatio = sensorSize.width().toFloat() / sensorSize.height()
+        val cropRect: Rect
+
+        if (sensorAspectRatio > desiredAspectRatio) {
+            val cropHeight = (sensorSize.width() / desiredAspectRatio).toInt()
+            val cropOffset = (sensorSize.height() - cropHeight) / 2
+            cropRect = Rect(0, cropOffset, sensorSize.width(), cropOffset + cropHeight)
+        } else {
+            val cropWidth = (sensorSize.height() * desiredAspectRatio).toInt()
+            val cropOffset = (sensorSize.width() - cropWidth) / 2
+            cropRect = Rect(cropOffset, 0, cropOffset + cropWidth, sensorSize.height())
+        }
+
+        return cropRect
     }
 
     override fun onRequestPermissionsResult(
